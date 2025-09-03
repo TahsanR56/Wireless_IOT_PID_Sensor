@@ -2,12 +2,11 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <WiFi.h>
-#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <PID_v1.h>
 #include <esp_sleep.h>
 
-// set pins
+// set pins 
 #define SEALEVELPRESSURE_HPA 1013.25
 #define uS_TO_S_FACTOR 1000000
 #define SLEEP_TIME 5 * 60 * uS_TO_S_FACTOR
@@ -16,14 +15,14 @@
 #define FAN_PWM_CHANNEL 0
 #define FAN_PWM_FREQ 25000
 #define FAN_PWM_RESOLUTION 8
+#define TCP_PORT 8888
 
-// see README, need to change to YOUR network
+// change to YOUR network and computer IP
 const char* ssid = "SSID";
 const char* password = "PASSWORD";
-const char* serverURL = "http://YOUR_SERVER_IP:5000/api/data";
+const char* serverIP = "YOUR_COMPUTER_IP"; 
 
 Adafruit_BME280 bme;
-HTTPClient http;
 WiFiClient client;
 
 // PID variables
@@ -61,7 +60,7 @@ void setup() {
   
   if (connectToWiFi()) {
     SensorData data = controlLoop();
-    sendDataToServer(data);
+    sendDataToGUI(data);
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
   }
@@ -91,15 +90,25 @@ void initPID() {
 }
 
 bool connectToWiFi() {
+  Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
   
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 15) {
     delay(1000);
+    Serial.print(".");
     attempts++;
   }
   
-  return WiFi.status() == WL_CONNECTED;
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected to WiFi!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+    return true;
+  } else {
+    Serial.println("\nFailed to connect to WiFi");
+    return false;
+  }
 }
 
 SensorData controlLoop() {
@@ -144,32 +153,31 @@ SensorData controlLoop() {
   return data;
 }
 
-void sendDataToServer(SensorData data) {
-  DynamicJsonDocument doc(256);
-  doc["id"] = data.readingId;
-  doc["temperature"] = data.temperature;
-  doc["humidity"] = data.humidity;
-  doc["pressure"] = data.pressure;
-  doc["fan_speed"] = data.fanSpeed;
-  doc["setpoint"] = setpoint;
-  doc["rssi"] = WiFi.RSSI();
-  
-  String jsonPayload;
-  serializeJson(doc, jsonPayload);
-  
-  http.begin(client, serverURL);
-  http.addHeader("Content-Type", "application/json");
-  int httpCode = http.POST(jsonPayload);
-  
-  if (httpCode > 0) {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpCode);
+void sendDataToGUI(SensorData data) {
+  if (client.connect(serverIP, TCP_PORT)) {
+    Serial.println("Connected to Python GUI");
+    
+    DynamicJsonDocument doc(256);
+    doc["id"] = data.readingId;
+    doc["temperature"] = data.temperature;
+    doc["humidity"] = data.humidity;
+    doc["pressure"] = data.pressure;
+    doc["fan_speed"] = data.fanSpeed;
+    doc["setpoint"] = setpoint;
+    doc["rssi"] = WiFi.RSSI();
+    
+    String jsonPayload;
+    serializeJson(doc, jsonPayload);
+    
+    client.println(jsonPayload);
+    
+    delay(100);
+    
+    client.stop();
+    Serial.println("Data sent, connection closed");
   } else {
-    Serial.print("Error sending data: ");
-    Serial.println(http.errorToString(httpCode));
+    Serial.println("Failed to connect to Python GUI");
   }
-  
-  http.end();
 }
 
 void goToSleep() {
