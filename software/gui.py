@@ -170,7 +170,7 @@ class ComfortControlGUI:
         server_socket.close()
 
     def process_data(self, data):
-        """Process received sensor data"""
+        #process recieved sensor data
         self.current_data.update(data)
         self.current_data['timestamp'] = datetime.now().isoformat()
         
